@@ -7,13 +7,13 @@ sys.path.append(UNET_PATH)
 from tf_unet import image_gen
 from tf_unet import unet
 from tf_unet import util
-from readImages import DataProvider
+from readImages import DataProvider, DataProviderTiled
 from plotting import plotter
 from plotting import logger
 
-BATCH_SIZE = 1
-EPOCHS = 10
-VALIDATION_SIZE = 10
+BATCH_SIZE = 50
+EPOCHS = 20
+VALIDATION_SIZE = 516
 
 DROPOUT_KEEP_PROB = 0.6 # keep_prob
 DISPLAY_STEP = 2
@@ -33,7 +33,7 @@ def main():
 	plot = plotter(logs, EPOCHS, os.getcwd() + "/" + "plots") 
 
 	# data provider
-	dp = DataProvider(batchSize = BATCH_SIZE, validationSize = VALIDATION_SIZE)
+	dp = DataProviderTiled(splits = 12, batchSize = BATCH_SIZE, validationSize = VALIDATION_SIZE)
 	dp.readData()
 	print("DONE READING DATA")
 	# calculate num of iterations
@@ -46,7 +46,7 @@ def main():
 	 features_root = 16, cost="cross_entropy", cost_kwargs={})
 
 	# trainer
-	options = {"momentum":0.2, "learning_rate":0.7,"decay_rate":0.95}
+	options = {"momentum":0.2, "learning_rate":0.2,"decay_rate":0.95}
 
 
 	trainer = unet.Trainer(net, optimizer="momentum",plotter = plot, opt_kwargs=options )

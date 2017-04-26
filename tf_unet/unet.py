@@ -20,11 +20,17 @@ author: jakeret
 from __future__ import print_function, division, absolute_import, unicode_literals
 
 import os
+import sys
 import shutil
 import numpy as np
 from collections import OrderedDict
 import logging
 import matplotlib.pyplot as plt
+
+UTIL_PATH = os.getcwd() + "/../util"
+sys.path.append(UTIL_PATH)
+from plotting import plotter
+from plotting import logger
 
 
 import tensorflow as tf
@@ -302,11 +308,13 @@ class Trainer(object):
     prediction_path = "prediction"
     verification_batch_size = 4
     
-    def __init__(self, net, batch_size=1, optimizer="momentum", opt_kwargs={}):
+    def __init__(self, net, batch_size=1, optimizer="momentum",plotter= None, opt_kwargs={}):
         self.net = net
         self.batch_size = batch_size
         self.optimizer = optimizer
         self.opt_kwargs = opt_kwargs
+        # added manually
+        self.plotter = plotter
         
     def _get_optimizer(self, training_iters, global_step):
         if self.optimizer == "momentum":
@@ -397,12 +405,13 @@ class Trainer(object):
                     self.net.restore(sess, ckpt.model_checkpoint_path)
             
             # test_x, test_y = data_provider(self.verification_batch_size)
-            test_x, test_y = data_provider()
+            
+            test_x, test_y = data_provider.getValidationData(-1, crop=False)
 
             ####
-            # print("x y shape")
-            print(test_x.shape)
-            print(test_y.shape)
+            print("x y shape")
+            # print(test_x.shape)
+            # print(test_y.shape)
             # print(test_x.dtype)
             # print(test_y.dtype)
 
@@ -416,7 +425,7 @@ class Trainer(object):
                 total_loss = 0
                 for step in range((epoch*training_iters), ((epoch+1)*training_iters)):
                     # batch_x, batch_y = data_provider(self.batch_size)
-                    batch_x, batch_y = data_provider()
+                    batch_x, batch_y = data_provider(crop=False)
 
                     # print("BATCH x y")
                     # print(batch_x.shape)
@@ -473,13 +482,25 @@ class Trainer(object):
                                                                           util.crop_to_shape(batch_y,
                                                                                              prediction.shape)),
                                                                           loss))
-              
-        img = util.combine_img_prediction(batch_x, batch_y, prediction)
+        diceScore = dice_score(prediction,util.crop_to_shape(batch_y,prediction.shape))
+        logging.info("Dice score= {:.2f}".format(diceScore))
+        # add data to plotter
+        self.plotter.updateLogger(diceScore,"dice score")
+        self.plotter.updateLogger(loss,"validation loss")
+        er = error_rate(prediction,util.crop_to_shape(batch_y,prediction.shape))
+        self.plotter.updateLogger(er,"validation error")
+        # 
+        # smple from validation data
+        sampleSizeValid = 10
+        img = util.combine_img_prediction(batch_x[0:sampleSizeValid,...],\
+         batch_y[0:sampleSizeValid,...], prediction[0:sampleSizeValid,...])
         util.save_image(img, "%s/%s.jpg"%(self.prediction_path, name))
         
         return pred_shape
     
     def output_epoch_stats(self, epoch, total_loss, training_iters, lr):
+        # adding training loss
+        self.plotter.updateLogger(total_loss/training_iters,"train loss")
         logging.info("Epoch {:}, Average loss: {:.4f}, learning rate: {:.4f}".format(epoch, (total_loss / training_iters), lr))
     
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
@@ -502,12 +523,56 @@ class Trainer(object):
 def error_rate(predictions, labels):
     """
     Return the error rate based on dense predictions and 1-hot labels.
-    """
     
+    """
     return 100.0 - (
         100.0 *
         np.sum(np.argmax(predictions, 3) == np.argmax(labels, 3)) /
         (predictions.shape[0]*predictions.shape[1]*predictions.shape[2]))
+
+
+def dice_score(predictions, labels):
+    """
+    Return the average dice score for the predictions
+    """
+    # print(labels.shape)
+    # print(predictions.shape)
+    # np.save("preds",predictions)
+    # np.save("labels", labels)
+    # # plot some of them
+    # fig, ax = plt.subplots(1, 4)
+    # ax[0].imshow(predictions[0,:,:,0],cmap=plt.cm.gray)
+    # ax[1].imshow(predictions[0,:,:,1],cmap=plt.cm.gray)
+    # print(predictions[0,...].shape)
+    # ax[2].imshow(np.argmax(predictions[0,...],axis=2),cmap=plt.cm.gray)
+    # ax[3].imshow(labels[0,:,:,1],cmap=plt.cm.gray)
+    # # ax[4].imshow(batch_y[0,:,:,1],cmap=plt.cm.gray)
+    # plt.show()    
+
+
+
+
+    gt = np.reshape(labels[...,1],[-1,1])
+    # print(gt.shape)
+    # pred = np.reshape(np.argmax(predictions,axis=3),[-1,1])
+    pred = np.reshape(predictions[...,1],[-1,1])
+    # print(pred.shape)
+    intersection = np.sum(gt * pred, axis=1)
+    # print(intersection.shape)
+    union = np.sum(pred*pred, axis=1) + np.sum(gt*gt, axis=1)
+    # print(union.shape)
+    dice =  2 * np.sum(intersection)/ np.sum(union)
+
+    # print("individual dice")
+    # for i in range(predictions.shape[0]):
+    #     gt = np.reshape(labels[i,:,:,1],[-1,1])
+    #     pred = np.reshape(predictions[i,:,:,1],[-1,1])
+    #     intersection = np.sum(gt * pred, axis=1)
+    #     union = np.sum(pred*pred, axis=1) + np.sum(gt*gt, axis=1)
+    #     dices =  2 * np.sum(intersection)/ np.sum(union)
+    #     print("i = " + str(i))
+    #     print("dice = " + str(dices))
+    return dice
 
 
 def get_image_summary(img, idx=0):
